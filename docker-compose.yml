@@ -1,0 +1,11 @@
+version: "3.0"
+services:
+  node:
+    image: "node:latest"
+    working_dir: /
+    tty: true
+    volumes:
+      - ./:/application
+    command:
+      - "bash"
+    
