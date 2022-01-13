@@ -8,4 +8,9 @@ services:
       - ./:/application
     command:
       - "bash"
+  java:
+    image: "openjdk:latest"
+    tty: true
+    volumes:
+      - ./:/application
     
