@@ -7,77 +7,102 @@ const fs = require('fs').promises;
 const exec = util.promisify(require('child_process').exec);
 const { spawn } = require('child_process');
 
-async function executeJava(code, input) {
-  const shell = spawn('docker', ['compose', 'exec', 'java', 'bash'], {
-    shell: true,
-  });
-
-  const inputString = input.join(',');
-
-  const executableCode = `
-    class Main {
-      public static void main(String[] args) {
-        Solution solver = new Solution();
-        System.out.print(solver.solution(${inputString}));
-      }
-    }
-
-    ${code}
-  `;
-
+const save = async (string, fileName) => {
   const folderName = nanoid();
-  const fileName = 'test.java';
-
   const path = `./user_scripts/${folderName}`;
   await fs.mkdir(path, { recursive: true });
-  await fs.writeFile(`${path}/${fileName}`, executableCode, 'utf8');
+  await fs.writeFile(`${path}/${fileName}`, string, 'utf8');
 
-  await exec(`javac ${path}/${fileName}`);
+  return path;
+};
 
-  shell.stdin.write(`java -cp application/${path} Main`);
-  shell.stdin.end();
-
-  const output = await new Promise((resolve) => {
-    shell.stdout.on('data', (data) => {
-      resolve(data.toString());
-    });
-  });
-
+const cleanup = async (path) => {
   await exec(`rm -r ${path}`);
+};
+
+async function executeJava(code, input) {
+  const getExecutableCode = () => {
+    const inputString = input.join(',');
+
+    return `
+      class Main {
+        public static void main(String[] args) {
+          Solution solver = new Solution();
+          System.out.print(solver.solution(${inputString}));
+        }
+      }
+  
+      ${code}
+    `;
+  };
+
+  const runInContainer = async (path) => {
+    const shell = spawn('docker', ['compose', 'exec', 'java', 'bash'], {
+      shell: true,
+    });
+
+    shell.stdin.write(`java -cp application/${path} Main`);
+    shell.stdin.end();
+
+    return new Promise((resolve) => {
+      shell.stdout.on('data', (data) => {
+        resolve(data.toString());
+      });
+    });
+  };
+
+  const compile = async (path, fileName) => {
+    await exec(`javac ${path}/${fileName}`);
+  };
+
+  const executableCode = getExecutableCode();
+
+  const fileName = 'test.java';
+  const path = await save(executableCode, fileName);
+
+  await compile(path, fileName);
+
+  const output = await runInContainer(path);
+
+  await cleanup(path);
 
   return JSON.parse(output);
 }
 
 async function executeJavaScript(code, input) {
-  const shell = spawn('docker', ['compose', 'exec', 'node', 'bash'], {
-    shell: true,
-  });
+  const getExecutableCode = () => {
+    const inputString = input.join(',');
 
-  const inputString = input.join(',');
+    return `
+      const func = ${code};
+    
+      console.log(func(${inputString}));
+    `;
+  };
 
-  const executableCode = `
-    const func = ${code};
-  
-    console.log(func(${inputString}));
-  `;
-
-  const folderName = nanoid();
-  const fileName = 'test';
-
-  const path = `./user_scripts/${folderName}`;
-  await fs.mkdir(path, { recursive: true });
-  await fs.writeFile(`${path}/${fileName}`, executableCode, 'utf8');
-
-  shell.stdin.write(`node /application/${path}/${fileName} \n`);
-  shell.stdin.end();
-
-  const output = await new Promise((resolve) => {
-    shell.stdout.on('data', (data) => {
-      resolve(data.toString());
+  const runInContainer = (path, fileName) => {
+    const shell = spawn('docker', ['compose', 'exec', 'node', 'bash'], {
+      shell: true,
     });
-  });
 
-  await exec(`rm -r ${path}`);
+    shell.stdin.write(`node /application/${path}/${fileName} \n`);
+    shell.stdin.end();
+
+    return new Promise((resolve) => {
+      shell.stdout.on('data', (data) => {
+        resolve(data.toString());
+      });
+    });
+  };
+
+  const executableCode = getExecutableCode();
+
+  const fileName = 'test';
+  const path = await save(executableCode, fileName);
+
+  const output = await runInContainer(path, fileName);
+
+  await cleanup(path);
 
   return JSON.parse(output);
 }
